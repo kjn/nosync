@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014 Mikolaj Izdebski
+ * Copyright (c) 2014-2017 Mikolaj Izdebski
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,29 +20,30 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+static int dlsym_pending;
+
 #define OPEN(open)                                              \
+                                                                \
+static int (*real_ ## open)(const char *, int, ...);            \
+                                                                \
 int __nosync_ ## open(const char *path, int flags, mode_t mode) \
 {                                                               \
-  static volatile void *open_ptr;                               \
-  static __thread int dlsym_pending;                            \
-  int (*real_open)(const char *, int, ...);                     \
-                                                                \
   /* Avoid infinite recursion if called from dlsym(). */        \
   if (__builtin_expect(dlsym_pending, 0)) {                     \
     errno = ENOSYS;                                             \
     return -1;                                                  \
   }                                                             \
                                                                 \
-  real_open = __atomic_load_n(&open_ptr, __ATOMIC_ACQUIRE);     \
+  return real_ ## open(path, flags & ~(O_SYNC | O_DSYNC), mode);  \
+}                                                               \
                                                                 \
-  if (__builtin_expect(!real_open, 0)) {                        \
-    dlsym_pending = 1;                                          \
-    real_open = dlsym(RTLD_NEXT, #open);                        \
-    dlsym_pending = 0;                                          \
-    __atomic_store_n(&open_ptr, real_open, __ATOMIC_RELEASE);   \
-  }                                                             \
-                                                                \
-  return real_open(path, flags & ~(O_SYNC | O_DSYNC), mode);    \
+__attribute__((constructor))                                    \
+static void                                                     \
+init_ ## open(void)                                             \
+{                                                               \
+  dlsym_pending = 1;                                            \
+  real_ ## open = dlsym(RTLD_NEXT, #open);                      \
+  dlsym_pending = 0;                                            \
 }                                                               \
                                                                 \
 int open(const char *, int, ...)                                \
