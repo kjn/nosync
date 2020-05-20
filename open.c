@@ -17,33 +17,32 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
+/* Avoid infinite recursion if called from dlsym(). The implementation
+   assumes that open is called before the process goes multi-threaded. */
 static int dlsym_pending;
 
 #define OPEN(open)                                              \
                                                                 \
-static int (*real_ ## open)(const char *, int, ...);            \
-                                                                \
 int __nosync_ ## open(const char *path, int flags, mode_t mode) \
 {                                                               \
-  /* Avoid infinite recursion if called from dlsym(). */        \
-  if (__builtin_expect(dlsym_pending, 0)) {                     \
-    errno = ENOSYS;                                             \
-    return -1;                                                  \
+  static int (*real)(const char *, int, ...);                   \
+  int (*real_copy)(const char *, int, ...)                      \
+    = __atomic_load_n(&real, __ATOMIC_RELAXED);                 \
+  if (real_copy == NULL) {                                      \
+    if (dlsym_pending) {                                        \
+      errno = ENOSYS;                                           \
+      return -1;                                                \
+    }                                                           \
+    dlsym_pending = 1;                                          \
+    real_copy = dlsym(RTLD_NEXT, #open);                        \
+    dlsym_pending = 0;                                          \
+    __atomic_store_n(&real, real_copy, __ATOMIC_RELAXED);       \
   }                                                             \
-                                                                \
-  return real_ ## open(path, flags & ~(O_SYNC | O_DSYNC), mode);  \
-}                                                               \
-                                                                \
-__attribute__((constructor))                                    \
-static void                                                     \
-init_ ## open(void)                                             \
-{                                                               \
-  dlsym_pending = 1;                                            \
-  real_ ## open = dlsym(RTLD_NEXT, #open);                      \
-  dlsym_pending = 0;                                            \
+  return real_copy(path, flags & ~(O_SYNC | O_DSYNC), mode);    \
 }                                                               \
                                                                 \
 int open(const char *, int, ...)                                \
