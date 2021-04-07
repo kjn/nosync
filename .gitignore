@@ -1,3 +1,4 @@
 *~
 *.o
 nosync.so
+test_nosync
