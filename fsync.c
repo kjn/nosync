@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014 Mikolaj Izdebski
+ * Copyright (c) 2014-2021 Mikolaj Izdebski
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 #include <errno.h>
 #include <pthread.h>
 
+extern int __nosync_check_fd(int fd);
+
 int __nosync_fsync()
 {
   pthread_testcancel();
@@ -23,8 +25,20 @@ int __nosync_fsync()
   return 0;
 }
 
-int fdatasync() __attribute__((alias("__nosync_fsync")));
-int fsync() __attribute__((alias("__nosync_fsync")));
 int msync() __attribute__((alias("__nosync_fsync")));
 int sync() __attribute__((alias("__nosync_fsync")));
 int sync_file_range() __attribute__((alias("__nosync_fsync")));
+
+int __nosync_fsync_fd(int fd)
+{
+  if (__nosync_check_fd(fd)) {
+    // __nosync_check_fd() sets errno
+    return -1;
+  }
+
+  return __nosync_fsync();
+}
+
+int fsync(int fd) __attribute__((alias("__nosync_fsync_fd")));
+int fdatasync(int fd) __attribute__((alias("__nosync_fsync_fd")));
+int syncfs(int fd) __attribute__((alias("__nosync_fsync_fd")));

@@ -17,6 +17,10 @@ Installation
 
     make install prefix=/target/location
 
+Run tests
+---------
+
+    make test
 
 Usage
 -----
@@ -35,4 +39,7 @@ nosync works by overloading the following functions:
   * `open`,
   * `open64`,
   * `sync`,
+  * `syncfs`,
   * `sync_file_range`.
+
+`fsync()`, `fdatasync()` and `syncfs()` check if the file descriptor is valid.
